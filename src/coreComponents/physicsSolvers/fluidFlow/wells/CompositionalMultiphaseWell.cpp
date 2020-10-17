@@ -423,6 +423,7 @@ void CompositionalMultiphaseWell::InitializeWells( DomainPartition & domain )
   GEOSX_MARK_FUNCTION;
 
   localIndex const NC = m_numComponents;
+  localIndex const NP = m_numPhases;
 
   MeshLevel & meshLevel = *domain.getMeshBody( 0 )->getMeshLevel( 0 );
 
@@ -462,12 +463,15 @@ void CompositionalMultiphaseWell::InitializeWells( DomainPartition & domain )
     PresCompFracInitializationKernel::Launch< parallelDevicePolicy<> >( perforationData.size(),
                                                                         subRegion.size(),
                                                                         NC,
+                                                                        NP,
                                                                         subRegion.IsLocallyOwned(),
                                                                         subRegion.GetTopRank(),
                                                                         perforationData.GetNumPerforationsGlobal(),
                                                                         wellControls,
                                                                         m_resPressure.toNestedViewConst(),
                                                                         m_resGlobalCompDensity.toNestedViewConst(),
+                                                                        m_resPhaseVolFrac.toNestedViewConst(),
+                                                                        m_resPhaseMassDens.toNestedViewConst(),
                                                                         resElementRegion,
                                                                         resElementSubRegion,
                                                                         resElementIndex,
@@ -807,7 +811,6 @@ void CompositionalMultiphaseWell::ComputePerforationRates( WellElementSubRegion 
   arrayView1d< localIndex const > const & resElementIndex =
     perforationData->getReference< array1d< localIndex > >( PerforationData::viewKeyStruct::reservoirElementIndexString );
 
-
   PerforationKernel::Launch< parallelDevicePolicy<> >( perforationData->size(),
                                                        NumFluidComponents(),
                                                        NumFluidPhases(),
@@ -832,6 +835,9 @@ void CompositionalMultiphaseWell::ComputePerforationRates( WellElementSubRegion 
                                                        dWellElemPressure,
                                                        wellElemGlobalCompDensity,
                                                        dWellElemGlobalCompDensity,
+                                                       wellElemTotalMass,
+                                                       dWellElemTotalMass_dPres,
+                                                       dWellElemTotalMass_dCompDens,
                                                        wellElemCompFrac,
                                                        dWellElemCompFrac_dCompDens,
                                                        perfGravCoef,
@@ -1135,8 +1141,9 @@ void CompositionalMultiphaseWell::FormPressureRelations( DomainPartition const &
                                                               dConnRate,
                                                               wellElemPressure,
                                                               dWellElemPressure,
-                                                              wellElemGlobalCompDensity,
-                                                              dWellElemGlobalCompDensity,
+                                                              wellElemTotalMassDens,
+                                                              dWellElemTotalMassDens_dPres,
+                                                              dWellElemTotalMassDens_dCompDens,
                                                               localMatrix,
                                                               localRhs );
     if( controlHasSwitched == 1 )
