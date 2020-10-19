@@ -432,9 +432,9 @@ struct PressureRelationKernel
           arrayView1d< real64 const > const & dConnRate,
           arrayView1d< real64 const > const & wellElemPressure,
           arrayView1d< real64 const > const & dWellElemPressure,
-          arrayView2d< real64 const > const & wellElemTotalMassDens,
-          arrayView2d< real64 const > const & dWellElemTotalMassDens_dPres,
-          arrayView3d< real64 const > const & dWellElemTotalMassDens_dCompDens,
+          arrayView1d< real64 const > const & wellElemTotalMassDens,
+          arrayView1d< real64 const > const & dWellElemTotalMassDens_dPres,
+          arrayView2d< real64 const > const & dWellElemTotalMassDens_dCompDens,
           CRSMatrixView< real64, globalIndex const > const & localMatrix,
           arrayView1d< real64 > const & localRhs )
   {
@@ -507,12 +507,12 @@ struct PressureRelationKernel
         real64 avgMassDens = 0;
         for( localIndex ic = 0; ic < NC; ++ic )
         {
-          avgMassDens += 0.5 * ( totalMassDens[iwelemNext][0][ic] + totalMassDens[iwelem][0][ic] );
-          dAvgMassDens_dCompNext[ic] = 0.5 * dTotalMassDens_dCompDens[iwelemNext][0][ic];
-          dAvgMassDens_dCompCurrent[ic] = 0.5 * dTotalMassDens_dCompDens[iwelem][0][ic];
+          avgMassDens += 0.5 * ( wellElemTotalMassDens[iwelemNext] + wellElemTotalMassDens[iwelem] );
+          dAvgMassDens_dCompNext[ic] = 0.5 * dWellElemTotalMassDens_dCompDens[iwelemNext][ic];
+          dAvgMassDens_dCompCurrent[ic] = 0.5 * dWellElemTotalMassDens_dCompDens[iwelem][ic];
         }
-        real64 const dAvgMassDens_dPresNext = 0.5 * dTotalMassDens_dPres[iwelemNext][0];
-        real64 const dAvgMassDens_dPresCurrent = 0.5 * dTotalMassDens_dPres[iwelem][0];
+        real64 const dAvgMassDens_dPresNext = 0.5 * dWellElemTotalMassDens_dPres[iwelemNext];
+        real64 const dAvgMassDens_dPresCurrent = 0.5 * dWellElemTotalMassDens_dPres[iwelem];
 
         // compute depth diff times acceleration
         real64 const gravD = wellElemGravCoef[iwelemNext] - wellElemGravCoef[iwelem];
@@ -607,9 +607,9 @@ struct PerforationKernel
           arrayView1d< real64 const > const & dWellElemPressure,
           arrayView2d< real64 const > const & wellElemCompDens,
           arrayView2d< real64 const > const & dWellElemCompDens,
-          arrayView1d< real64 const > const & wellElemTotalMass,
-          arrayView1d< real64 const > const & dWellElemTotalMass_dPres,
-          arrayView2d< real64 const > const & dWellElemTotalMass_dCompDens,
+          arrayView1d< real64 const > const & wellElemTotalMassDens,
+          arrayView1d< real64 const > const & dWellElemTotalMassDens_dPres,
+          arrayView2d< real64 const > const & dWellElemTotalMassDens_dCompDens,
           arrayView2d< real64 const > const & wellElemCompFrac,
           arrayView3d< real64 const > const & dWellElemCompFrac_dCompDens,
           arrayView1d< real64 const > const & perfGravCoef,
@@ -1048,7 +1048,7 @@ struct PresCompFracInitializationKernel
       maxResPressure.max( resPressure[er][esr][ei] );
 
       // increment the average total mass density
-      for( localIndex ip = 0; ic < NC; ++ic )
+      for( localIndex ip = 0; ip < NP; ++ip )
       {
         sumTotalMassDens += resPhaseVolFrac[er][esr][ei][ip] * resPhaseMassDens[er][esr][ei][0][ip];
       }
@@ -1173,6 +1173,55 @@ struct CompDensInitializationKernel
       {
         wellElemCompDens[iwelem][ic] = wellElemCompFrac[iwelem][ic] * wellElemTotalDens[iwelem][0];
       }
+    } );
+  }
+
+};
+
+/******************************** TotalMassDensityKernel ****************************/
+
+struct TotalMassDensityKernel
+{
+
+  template< typename POLICY >
+  static void
+  Launch( localIndex const subRegionSize,
+          localIndex const numComponents,
+          localIndex const numPhases,
+          arrayView2d< real64 const > const & phaseVolFrac,
+          arrayView2d< real64 const > const & dPhaseVolFrac_dPres,
+          arrayView3d< real64 const > const & dPhaseVolFrac_dCompDens,
+          arrayView3d< real64 const > const & dCompFrac_dCompDens,
+          arrayView3d< real64 const > const & phaseMassDens,
+          arrayView3d< real64 const > const & dPhaseMassDens_dPres,
+          arrayView4d< real64 const > const & dPhaseMassDens_dComp,
+          arrayView1d< real64 > const & totalMassDens,
+          arrayView1d< real64 > const & dTotalMassDens_dPres,
+          arrayView2d< real64 > const & dTotalMassDens_dCompDens )
+  {
+    localIndex constexpr maxNumComp = constitutive::MultiFluidBase::MAX_NUM_COMPONENTS;
+    localIndex const NC = numComponents;
+    localIndex const NP = numPhases;
+
+    stackArray1d< real64, maxNumComp > dMassDens_dC( NC );
+
+    forAll< POLICY >( subRegionSize, [=] GEOSX_HOST_DEVICE ( localIndex const iwelem )
+    {
+      for( localIndex ip = 0; ip < NP; ++ip )
+      {
+        totalMassDens[iwelem] += phaseVolFrac[iwelem][ip] * phaseMassDens[iwelem][0][ip];
+        dTotalMassDens_dPres[iwelem] += dPhaseVolFrac_dPres[iwelem][ip] * phaseMassDens[iwelem][0][ip]
+                                        + phaseVolFrac[iwelem][ip] * dPhaseMassDens_dPres[iwelem][0][ip];
+
+        applyChainRule( NC, dCompFrac_dCompDens[iwelem], dPhaseMassDens_dComp[iwelem][0][ip], dMassDens_dC );
+        for( localIndex ic = 0; ic < NC; ++ic )
+        {
+          dTotalMassDens_dCompDens[iwelem][ic] += dPhaseVolFrac_dCompDens[iwelem][ip][ic] * phaseMassDens[iwelem][0][ip]
+                                                  + phaseVolFrac[iwelem][ip] * dMassDens_dC[ic];
+
+        }
+      }
+
     } );
   }
 

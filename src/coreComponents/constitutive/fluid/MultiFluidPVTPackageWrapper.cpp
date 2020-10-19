@@ -91,6 +91,7 @@ void MultiFluidPVTPackageWrapperUpdate::Compute( real64 pressure,
                                                  arraySlice1d< real64 const, 0 > const & composition,
                                                  arraySlice1d< real64, 0 > const & phaseFrac,
                                                  arraySlice1d< real64, 0 > const & phaseDens,
+                                                 arraySlice1d< real64, 0 > const & phaseMassDens,
                                                  arraySlice1d< real64, 0 > const & phaseVisc,
                                                  arraySlice2d< real64, 1 > const & phaseCompFrac,
                                                  real64 & totalDens ) const
@@ -139,9 +140,11 @@ void MultiFluidPVTPackageWrapperUpdate::Compute( real64 pressure,
     auto const & frac = split.PhaseMoleFraction.at( m_phaseTypes[ip] );
     auto const & comp = props.MoleComposition;
     auto const & dens = m_useMass ? props.MassDensity : props.MoleDensity;
+    auto const & massDens = props.MassDensity;
 
     phaseFrac[ip] = frac.value;
     phaseDens[ip] = dens.value;
+    phaseMassDens[ip] = massDens.value;
     phaseVisc[ip] = 1.0; // TODO
     for( localIndex jc = 0; jc < NC; ++jc )
     {
@@ -210,6 +213,10 @@ void MultiFluidPVTPackageWrapperUpdate::Compute( real64 pressure,
                                                  arraySlice1d< real64 > const & dPhaseDensity_dPressure,
                                                  arraySlice1d< real64 > const & dPhaseDensity_dTemperature,
                                                  arraySlice2d< real64 > const & dPhaseDensity_dGlobalCompFraction,
+                                                 arraySlice1d< real64 > const & phaseMassDensity,
+                                                 arraySlice1d< real64 > const & dPhaseMassDensity_dPressure,
+                                                 arraySlice1d< real64 > const & dPhaseMassDensity_dTemperature,
+                                                 arraySlice2d< real64 > const & dPhaseMassDensity_dGlobalCompFraction,
                                                  arraySlice1d< real64 > const & phaseViscosity,
                                                  arraySlice1d< real64 > const & dPhaseViscosity_dPressure,
                                                  arraySlice1d< real64 > const & dPhaseViscosity_dTemperature,
@@ -238,6 +245,13 @@ void MultiFluidPVTPackageWrapperUpdate::Compute( real64 pressure,
     dPhaseDensity_dGlobalCompFraction
   };
 
+  CompositionalVarContainer< 1 > phaseMassDens {
+    phaseMassDensity,
+    dPhaseMassDensity_dPressure,
+    dPhaseMassDensity_dTemperature,
+    dPhaseMassDensity_dGlobalCompFraction
+  };
+
   CompositionalVarContainer< 1 > phaseVisc {
     phaseViscosity,
     dPhaseViscosity_dPressure,
@@ -261,7 +275,7 @@ void MultiFluidPVTPackageWrapperUpdate::Compute( real64 pressure,
 
 #if defined(__CUDACC__)
   // For some reason nvcc thinks these aren't used.
-  GEOSX_UNUSED_VAR( phaseFrac, phaseDens, phaseVisc, phaseCompFrac, totalDens );
+  GEOSX_UNUSED_VAR( phaseFrac, phaseDens, phaseMassDens, phaseVisc, phaseCompFrac, totalDens );
 #endif
 
   localIndex constexpr maxNumComp = MultiFluidBase::MAX_NUM_COMPONENTS;
@@ -323,6 +337,7 @@ void MultiFluidPVTPackageWrapperUpdate::Compute( real64 pressure,
     auto const & frac = split.PhaseMoleFraction.at( m_phaseTypes[ip] );
     auto const & comp = props.MoleComposition;
     auto const & dens = m_useMass ? props.MassDensity : props.MoleDensity;
+    auto const & massDens = props.MassDensity;
 
     phaseFrac.value[ip] = frac.value;
     phaseFrac.dPres[ip] = frac.dP;
@@ -331,6 +346,10 @@ void MultiFluidPVTPackageWrapperUpdate::Compute( real64 pressure,
     phaseDens.value[ip] = dens.value;
     phaseDens.dPres[ip] = dens.dP;
     phaseDens.dTemp[ip] = dens.dT;
+
+    phaseMassDens.value[ip] = massDens.value;
+    phaseMassDens.dPres[ip] = massDens.dP;
+    phaseMassDens.dTemp[ip] = massDens.dT;
 
     // TODO
     phaseVisc.value[ip] = 0.001;
